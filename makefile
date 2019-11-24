@@ -1,2 +1,2 @@
 p1: a3.cpp
-	gcc a3.cpp -o RayTracer -lglut -lGLU -lGL -lstdc++ -lm
+	gcc a3.cpp -o rayT -lglut -lGLU -lGL -lstdc++ -lm
