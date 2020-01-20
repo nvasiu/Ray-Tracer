@@ -262,54 +262,84 @@ class Light {
 
 };
 
-int windowDimension = 1000;
+int windowDimension = 400;
 int fovy = 70;
-int rayTreeDepth = 4;
+int rayTreeDepth;
 int numSpheres;
 Sphere sphereList[10];
 int numPlanes;
 Plane planeList[5];
 int numLights;
 Light lightList[5];
-Color backgroundColor(0.2,0.2,0.2);
+Color backgroundColor;
 
 Color trace(Ray r, int depth);
-Color phongLightingSphere(Ray r, Sphere s, double t);
-Color phongLightingPlane(Ray r, Plane p, double t);
+Color phongLightingSphere(Ray r, Sphere s, double t, int depth);
+Color phongLightingPlane(Ray r, Plane p, double t, int depth);
 void render();
 
-Color phongLightingSphere(Ray r, Sphere s, double t) {
+Color phongLightingSphere(Ray r, Sphere s, double t, int depth) {
 
-	Color I = backgroundColor*s.kd;
+	Color I = backgroundColor*s.kd; // Ambient Light
 
+	// Reflection
+	Vector P = r.p0 + r.v * t;
+	Vector N = s.normal(P);
+	N = Vector::normalize(N);
+	Vector R = N * 2 * Vector::dot(N, r.v) - r.v;
+	R = Vector::normalize(R);
+	Ray reflectedRay( P + (N*1e-6), R*-1);
+
+	Color reflectedColor = trace(reflectedRay, depth-1);
+
+	I = I + reflectedColor * s.kr;
+
+	// Refraction
+	double c1 = Vector::dot(N, r.v);
+
+	double etai = 1, etat = s.refractionIndex;
+	double eta = etai / etat;
+
+	double c2 = sqrt( 1 - (eta*eta) * (1 - (c1*c1)) );
+
+	Vector Rr = (r.v * eta) + (N * (eta*c1-c2));
+	Rr = Vector::normalize(Rr);
+
+	Ray refractedRay( P + (N*1e-6), Rr );
+
+	Color refractedColor = trace(refractedRay, depth-1);
+
+	I = I + refractedColor * s.kt;
+
+	// For each light source
 	for (int i = 0; i < numLights; i++) {
 		
-		Vector P = r.p0 + r.v * t;
-		Vector N = s.normal(P);
-		Vector L = P - lightList[i].location;
-
-		double NL = Vector::dot(N, L);
-
-		double Si = 0;
-
-		Vector revL = lightList[i].location - P;
-		Ray shadowRay(P, revL);
-		Color firstIntersect = trace(shadowRay, -1);
-
-		if ( (firstIntersect == backgroundColor) ) Si = 1;
-
-		Vector R = N * 2 * NL - L;
-		double RV = Vector::dot(R, r.v);
-		
 		Color sum;
+
+		// Diffuse
+		Vector L = P - lightList[i].location;
+		L = Vector::normalize(L);
+		double NL = Vector::dot(N, L);
 
 		if (NL > 0) {
 			sum = sum + (s.kd*(NL/(Vector::getLength(N)*Vector::getLength(L))));
 		}
 
-		if (RV > 0) {
-			sum = sum + (s.ks*pow((RV/(Vector::getLength(R)*Vector::getLength(r.v))),s.q));
+		// Specular
+		Vector Ri = N * 2 * NL - L;
+		Ri = Vector::normalize(Ri);
+		double RiV = Vector::dot(Ri, r.v);
+
+		if (RiV > 0) {
+			sum = sum + (s.ks*pow((RiV/(Vector::getLength(Ri)*Vector::getLength(r.v))),s.q));
 		}
+
+		// Shadow
+		double Si = 0;
+		Vector revL = lightList[i].location - P;
+		Ray shadowRay(P, revL);
+		Color firstObjectToIntersect = trace(shadowRay, -1);
+		if ( (firstObjectToIntersect == backgroundColor) ) Si = 1;
 
 		I = I + lightList[i].intensity * Si * sum;
 
@@ -319,45 +349,74 @@ Color phongLightingSphere(Ray r, Sphere s, double t) {
 
 }
 
-Color phongLightingPlane(Ray r, Plane p, double t) {
+Color phongLightingPlane(Ray r, Plane p, double t, int depth) {
 
-	Color I = backgroundColor*p.kd;
+	Color I = backgroundColor*p.kd; // Ambient Light
 
+	// Reflection
+	Vector P = r.p0 + r.v * t;
+	Vector N(-p.A, -p.B, -p.C);
+	N = Vector::normalize(N);
+	Vector R = N * 2 * Vector::dot(N, r.v) - r.v;
+	R = Vector::normalize(R);
+	Ray reflectedRay( P + (N*1e-6), R*-1);
+
+	Color reflectedColor = trace(reflectedRay, depth-1);
+
+	I = I + reflectedColor * p.kr;
+
+	// Refraction
+	double c1 = Vector::dot(N, r.v);
+
+	double etai = 1, etat = p.refractionIndex;
+	double eta = etai / etat;
+
+	double c2 = sqrt( 1 - (eta*eta) * (1 - (c1*c1)) );
+
+	Vector Rr = (r.v * eta) + (N * (eta*c1-c2));
+	Rr = Vector::normalize(Rr);
+
+	Ray refractedRay( P + (N*1e-6), Rr );
+
+	Color refractedColor = trace(refractedRay, depth-1);
+
+	I = I + refractedColor * p.kt;
+
+	// For each light source
 	for (int i = 0; i < numLights; i++) {
 		
-		Vector P = r.p0 + r.v * t;
-		Vector N(-p.A, -p.B, -p.C);
-		Vector L = P - lightList[i].location;
-
-		double NL = Vector::dot(N, L);
-
-		double Si = 0;
-
-		Vector revL = lightList[i].location - P;
-		Ray shadowRay(P, revL);
-		Color firstIntersect = trace(shadowRay, -1);
-
-		if ( (firstIntersect == backgroundColor) ) Si = 1;
-
-		Vector R = N * 2 * NL - L;
-		double RV = Vector::dot(R, r.v);
-		
 		Color sum;
+
+		// Diffuse
+		Vector L = P - lightList[i].location;
+		L = Vector::normalize(L);
+		double NL = Vector::dot(N, L);
 
 		if (NL > 0) {
 			sum = sum + (p.kd*(NL/(Vector::getLength(N)*Vector::getLength(L))));
 		}
 
-		if (RV > 0) {
-			sum = sum + (p.ks*pow((RV/(Vector::getLength(R)*Vector::getLength(r.v))),p.q));
+		// Specular
+		Vector Ri = N * 2 * NL - L;
+		Ri = Vector::normalize(Ri);
+		double RiV = Vector::dot(Ri, r.v);
+
+		if (RiV > 0) {
+			sum = sum + (p.ks*pow((RiV/(Vector::getLength(Ri)*Vector::getLength(r.v))),p.q));
 		}
+
+		// Shadow
+		double Si = 0;
+		Vector revL = lightList[i].location - P;
+		Ray shadowRay(P, revL);
+		Color firstObjectToIntersect = trace(shadowRay, -1);
+		if ( (firstObjectToIntersect == backgroundColor) ) Si = 1;
 
 		I = I + lightList[i].intensity * Si * sum;
 
 	}
 
 	return I;
-
 }
 
 Color trace(Ray r, int depth) {
@@ -393,13 +452,13 @@ Color trace(Ray r, int depth) {
 		if (depth == -1) {
 			return firstSphere->kd;
 		} else {
-			return phongLightingSphere(r, *firstSphere, firstT);
+			return phongLightingSphere(r, *firstSphere, firstT, depth);
 		}
 	} else if (firstObject == 2) {
 		if (depth == -1) {
 			return firstPlane->kd;
 		} else {
-			return phongLightingPlane(r, *firstPlane, firstT);
+			return phongLightingPlane(r, *firstPlane, firstT, depth);
 		}
 	} else {
 		return backgroundColor;
@@ -417,6 +476,7 @@ void render() {
 			double vy = (2*(y+0.5)/windowDimension) - 1;
 			
 			Vector vector(vx*tan(fovy/2),vy*tan(fovy/2),-1);
+			vector = Vector::normalize(vector);
 
 			Ray newray(start, vector);
 			
@@ -456,16 +516,76 @@ int main(int argc, char** argv) {
 	glMatrixMode(GL_PROJECTION);
 	gluOrtho2D(0.0, windowDimension, 0.0, windowDimension);
 
-	numSpheres = 3;
-	numPlanes = 1;
-	numLights = 1;
-	lightList[0] = Light(Vector(-100,100,100), Color(2,2,2));
-	lightList[1] = Light(Vector(-5,10,-5), Color(0.2,0.2,0.2));
-	planeList[0] = Plane(0.0, 1.0, 0.0, -1.0, Color(0.2,0.2,0.3), Color(0.3,0.3,0.3), 1, 0.5, 0.0, 1.5);
-	//planeList[1] = Plane(0.0, 1.0, 0.0, 4.0, Color(0.5,0.5,0.7), Color(1,0,0), 32, 0.5, 0.0, 1.5);
-	sphereList[0] = Sphere( Vector(1,0.5,-10), 1.5, Color(0.5,0,0), Color(1,1,1), 10, 0, 0, 0);
-	sphereList[1] = Sphere( Vector(-1,0,-8), 1, Color(0,0.5,0), Color(1,1,1), 10, 0, 0.0, 1.5);
-	sphereList[2] = Sphere( Vector(0,-0.75,-4), .25, Color(0,0,0.5), Color(1,1,1), 10, 0, 0.0, 1.5);
+	int scene = atoi(argv[1]);
+
+	switch (scene) {
+	
+		case 1:
+			rayTreeDepth = 3;
+			backgroundColor = Color(0.2,0.2,0.2);
+			numSpheres = 3;
+			numPlanes = 0;
+			numLights = 1;
+
+			lightList[0] = Light(Vector(-100,100,100), Color(2,2,2));
+
+			sphereList[0] = Sphere( Vector(1.5,1,-6), 1, Color(0.5,0.0,0.0), Color(1,1,1), 100, 0.0, 0.0, 0.0);
+			sphereList[2] = Sphere( Vector(0,-1,-6), 1, Color(0.0,0.5,0.0), Color(1,1,1), 30, 0.0, 0.0, 0.0);
+			sphereList[1] = Sphere( Vector(-1.5,1,-6), 1, Color(0.0,0.0,0.5), Color(1,1,1), 5, 0.0, 0.0, 0.0);
+		break;
+		
+		case 2:
+			rayTreeDepth = 3;
+			backgroundColor = Color(0.0,0.0,0.0);
+			numSpheres = 3;
+			numPlanes = 1;
+			numLights = 2;
+			
+			lightList[0] = Light(Vector(-100,170,100), Color(1,0.5,0.5));
+			lightList[1] = Light(Vector(100,170,100), Color(0.5,0.5,1));
+
+			planeList[0] = Plane(0.0, 1.0, 0.0, -1.0, Color(0.2,0.2,0.3), Color(0.3,0.3,0.3), 1, 0.0, 0.0, 1.5);
+
+			sphereList[0] = Sphere( Vector(0,0.5,-5), 1.5, Color(0.2,0.2,0.2), Color(1,1,1), 10, 1.0, 0, 0);
+			sphereList[1] = Sphere( Vector(-0.75,-0.75,-2.5), .25, Color(0,0.5,0), Color(1,1,1), 10, 0.5, 0.0, 1.5);
+			sphereList[2] = Sphere( Vector(0.75,-0.75,-2.5), .25, Color(0,0,0.5), Color(1,1,1), 10, 0.5, 0.0, 1.5);
+		break;
+
+		case 3:
+			rayTreeDepth = 3;
+			backgroundColor = Color(0.3,0.3,0.3);
+			numSpheres = 3;
+			numPlanes = 1;
+			numLights = 1;
+			
+			lightList[0] = Light(Vector(-100,100,100), Color(1,1,0.9));
+
+			planeList[0] = Plane(0.0, 1.0, 0.0, -1.0, Color(0.2,0.2,0.3), Color(0.3,0.3,0.3), 1, 0.0, 0.0, 1.5);
+
+			sphereList[0] = Sphere( Vector(1,-0.25,-4), 0.75, Color(0.1,0.5,0.5), Color(0.9,0.9,0.9), 30, 0.5, 1.0, 1.2);
+			sphereList[1] = Sphere( Vector(-1,-0.25,-4), 0.75, Color(0.05,0.1,0.0), Color(1,1,1), 10, 0.2, 1.0, 1.0);
+			sphereList[2] = Sphere( Vector(0,0,-6), 1.0, Color(1,0,1), Color(1,1,1), 10, 0.0, 0.0, 1.0);
+		break;
+
+		case 4:
+			rayTreeDepth = 3;
+			backgroundColor = Color(0.0,0.0,0.0);
+			numSpheres = 7;
+			numPlanes = 0;
+			numLights = 2;
+			
+			lightList[0] = Light(Vector(50,100,100), Color(1,1,0.9));
+
+			sphereList[0] = Sphere( Vector(1,-5,-20), 5, Color(1,0.4,0.0), Color(1,1,1), 10, 1.0, 0, 0.0);
+			sphereList[1] = Sphere( Vector(-5,-2,-30), 1, Color(1,1,1), Color(1,1,1), 100, 0.1, 0.0, 1.5);
+			sphereList[2] = Sphere( Vector(-6,-1,-25), 1, Color(0,0.5,1), Color(1,1,1), 10, 0.5, 0.0, 1.5);
+			sphereList[3] = Sphere( Vector(-6,0.5,-20), 1, Color(1,0,0), Color(1,1,1), 10, 0.0, 1.0, 1.5);
+			sphereList[4] = Sphere( Vector(-4.5,2,-15), 1, Color(1,0.8,0), Color(1,1,1), 10, 0.0, 1.0, 1.0);
+			sphereList[5] = Sphere( Vector(-3,3,-13), 1, Color(0,1,0), Color(1,1,1), 10, 1.0, 0.0, 1.5);
+			sphereList[6] = Sphere( Vector(-1,3,-10), 1, Color(1,0.5,1), Color(1,1,1), 10, 0.5, 1.0, 1.0);
+		break;
+
+	}
 
 	glutDisplayFunc(display);
 	glutMainLoop();	
